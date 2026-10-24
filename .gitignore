@@ -1,0 +1,21 @@
+# Secrets - never commit real API keys
+.env
+
+# Virtual environment
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Generated data (rebuilt by the app)
+data/chroma/
+logs/*
+!logs/.gitkeep
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

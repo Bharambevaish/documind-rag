@@ -1,0 +1,18 @@
+# --- Config ---
+python-dotenv>=1.0          # loads settings from the .env file
+
+# --- Ingestion (Phase 2) ---
+pypdf>=4.0                  # read PDF files page by page
+langchain-text-splitters>=0.2   # RecursiveCharacterTextSplitter (only the splitter, not all of LangChain)
+sentence-transformers>=3.0  # all-MiniLM-L6-v2 embedding model (runs on CPU)
+chromadb>=0.5               # local, persistent vector database
+
+# --- Generation (Phase 3) ---
+groq>=0.9                   # Groq API client (default LLM provider)
+requests>=2.31              # used to call a local Ollama server over HTTP
+
+# --- UI (Phase 4) ---
+streamlit>=1.35
+
+# --- Dev tool: only used by scripts/make_sample_docs.py to build the demo PDFs ---
+fpdf2>=2.7
