@@ -1,0 +1,95 @@
+[
+  {
+    "id": 1,
+    "question": "How many paid vacation days does a full-time employee get each year?",
+    "expected_source": "company_leave_policy.pdf",
+    "expected_page": 1
+  },
+  {
+    "id": 2,
+    "question": "What is the maximum number of unused annual leave days I can carry into next year?",
+    "expected_source": "company_leave_policy.pdf",
+    "expected_page": 1
+  },
+  {
+    "id": 3,
+    "question": "When do I need to submit a doctor's certificate for sick leave?",
+    "expected_source": "company_leave_policy.pdf",
+    "expected_page": 2
+  },
+  {
+    "id": 4,
+    "question": "How many casual leave days are allowed per year and how many can be taken at once?",
+    "expected_source": "company_leave_policy.pdf",
+    "expected_page": 2
+  },
+  {
+    "id": 5,
+    "question": "How long is maternity leave?",
+    "expected_source": "company_leave_policy.pdf",
+    "expected_page": 3
+  },
+  {
+    "id": 6,
+    "question": "How many days a week am I allowed to work remotely?",
+    "expected_source": "company_leave_policy.pdf",
+    "expected_page": 3
+  },
+  {
+    "id": 7,
+    "question": "What are the three main categories of machine learning?",
+    "expected_source": "machine_learning_notes.pdf",
+    "expected_page": 1
+  },
+  {
+    "id": 8,
+    "question": "Why is logistic regression used for classification and what function does it use?",
+    "expected_source": "machine_learning_notes.pdf",
+    "expected_page": 2
+  },
+  {
+    "id": 9,
+    "question": "How does k-fold cross-validation work?",
+    "expected_source": "machine_learning_notes.pdf",
+    "expected_page": 3
+  },
+  {
+    "id": 10,
+    "question": "What is the formula for the F1 score?",
+    "expected_source": "machine_learning_notes.pdf",
+    "expected_page": 4
+  },
+  {
+    "id": 11,
+    "question": "What does an AUC value of 0.5 mean?",
+    "expected_source": "machine_learning_notes.pdf",
+    "expected_page": 4
+  },
+  {
+    "id": 12,
+    "question": "Why are dictionary lookups fast in Python?",
+    "expected_source": "python_data_structures.md",
+    "expected_page": 1
+  },
+  {
+    "id": 13,
+    "question": "Who won the FIFA World Cup in 2022?",
+    "expected_source": null,
+    "expected_page": null,
+    "note": "Off-topic: should be stopped by the similarity threshold (no LLM call)."
+  },
+  {
+    "id": 14,
+    "question": "What is the salary of a software engineer at Northwind?",
+    "expected_source": null,
+    "expected_page": null,
+    "note": "On-topic but not in the docs: passes the threshold, the LLM must refuse."
+  },
+  {
+    "id": 15,
+    "question": "How does gradient descent update the model weights?",
+    "expected_source": null,
+    "expected_page": null,
+    "note": "Related ML topic that the notes don't cover: the LLM must refuse."
+  }
+]

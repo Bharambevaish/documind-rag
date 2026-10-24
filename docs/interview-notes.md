@@ -355,3 +355,122 @@ sources, then 1 source at Top-K = 1; overfitting → p.3; FIFA → "not found", 
 Cancel keeps everything; Query Logs → 6 questions, avg 0.82 s, 4/6 found, and it survives
 a restart. With `AppTest`: missing key → red error + disabled chat; Clear all → Yes →
 16 chunks removed and the empty-state hint shown.
+
+---
+
+## Phase 5 – Evaluation + Polish
+
+### The 30-second answer
+> "I didn't want to say 'it seems to work', so I built an evaluation. I wrote 15 test
+> questions: 12 with a known answer location (file and page) and 3 that are not in the
+> documents. The script measures retrieval separately from generation: the retrieval hit
+> rate is whether the right page is in the top-K chunks, and citation accuracy is whether
+> the final answer is right and cites that page. It also checks the 'not found' rate and
+> response time. On my sample set everything scored 100% with a 1.35 s average, and I'm
+> honest that this set is small, so the next step is real-world questions from the query logs."
+
+### What each file does
+| File | Purpose | Key detail to mention |
+|---|---|---|
+| `eval/test_questions.json` | 15 questions with `expected_source` + `expected_page` | Questions are **reworded**, not copied from the docs; 3 have `null` as the expected answer |
+| `eval/evaluate.py` | Runs retrieval-only *and* the full pipeline per question | Uses the same `answer_question()` as the app, so it tests what users get |
+| `eval/results.md` | Auto-generated report: summary, per-question table, failures | Includes the config (model, Top-K, threshold), so results are reproducible |
+| `README.md` | Overview, features, Mermaid diagram, setup, results, model story, future work | It's the project's first impression on GitHub |
+
+### The metrics, in simple words
+- **Retrieval hit rate @K**: "Did the search bring back the page that holds the answer?"
+  12/12. If this fails, nothing after it can succeed, so I measure it **separately**.
+- **MRR (Mean Reciprocal Rank)**: "How high up was the correct page?" Rank 1 → 1.0,
+  rank 2 → 0.5, rank 4 → 0.25, then averaged. We got 1.00, meaning it was always ranked first.
+- **Citation accuracy**: the end-to-end check, meaning the answer was found *and* it contains
+  `[expected_file, p.N]`. 12/12.
+- **Correct "not found" rate**: of the out-of-docs questions, how many were refused instead
+  of answered with a guess? 3/3. This measures **hallucination resistance**.
+- **Response time**: 1.35 s on average. Normal answers take 0.6–1.9 s; LLM refusals took
+  about 5 s, which is interesting because the model "thinks" longer before refusing. The
+  off-topic question took 0.02 s because the threshold skipped the LLM.
+
+### Why I designed the test set this way
+- **The 3 not-found questions cover both safety layers**: FIFA (off-topic → threshold),
+  salary (on-topic company question → the LLM must refuse), and gradient descent (an ML
+  topic the notes don't cover → the LLM must refuse).
+- **Reworded questions** ("paid vacation days" instead of "annual leave") test *meaning*-based
+  search, which is the whole point of embeddings.
+- **Honest limitation**: there are only 16 chunks and I wrote both the documents and the questions,
+  so 100% is optimistic. Saying this in an interview shows maturity. The fix is a bigger
+  test set built from real PDFs and real user questions from `logs/queries.jsonl`.
+
+### Fresh-install check
+I copied only the files Git would include into a clean folder (no `venv`, no `.env`, no
+database), added a fresh `.env`, ingested the samples into a brand-new ChromaDB, ran the
+CLI and the evaluation (100% again), started `streamlit run app.py`, and asked a chat
+question through Streamlit's `AppTest`. This proves the repo doesn't secretly depend on
+files that only exist on my laptop. A from-scratch `pip install -r requirements.txt` in a
+new venv couldn't be completed that day because PyPI was unreachable from my network (every
+other site worked), so it was re-run later. *(Interview tip: say what you could and
+couldn't verify. Don't claim a test you didn't run.)*
+
+### If the interviewer asks…
+- **"How do you know your RAG system works?"** I measure retrieval and generation
+  separately (hit rate, MRR, citation accuracy), plus a not-found rate for hallucination
+  and latency, and save a reproducible report.
+- **"Why measure retrieval separately?"** To locate failures. A low hit rate means fix
+  chunking, embeddings or Top-K; a high hit rate but low citation accuracy means fix the prompt or LLM.
+- **"How would you evaluate at scale?"** A larger labelled set; LLM-as-a-judge for
+  answer correctness and faithfulness (tools like RAGAS); and tracking metrics on every change in CI.
+
+---
+
+## 🎯 Final Interview Cheat Sheet (PLAN.md section 6)
+
+**1. What is RAG and why use it?**
+Retrieval-Augmented Generation: *retrieve* relevant chunks from your own documents,
+*augment* the prompt with them, and let the LLM *generate* an answer grounded in that text.
+LLMs don't know your private or recent documents and can hallucinate. RAG gives up-to-date,
+private, **verifiable** answers (with citations) without retraining the model. It's
+cheaper and faster to update than fine-tuning: adding a document takes seconds.
+
+**2. Why does chunk overlap matter?**
+Chunks are cut every ~800 characters. Without overlap, a sentence on a boundary is split
+across two chunks and neither one holds the full idea. A 150-character overlap repeats the end of one
+chunk at the start of the next, so boundary information isn't lost. Too much overlap
+just wastes storage and returns near-duplicate chunks.
+
+**3. What are embeddings and cosine similarity?**
+An embedding is a list of numbers (384 for MiniLM) that represents the *meaning* of a text;
+similar meanings give vectors pointing in similar directions, even with different words.
+Cosine similarity measures the angle between two vectors: 1 = same meaning, ~0 = unrelated.
+I normalise the vectors, so it's just a dot product. Chroma returns distance = 1 − similarity.
+
+**4. Why ChromaDB?**
+Free, open-source, runs locally with no server, persists to disk, stores text + metadata +
+vectors together, supports metadata filters (used for delete/list by file), and uses an
+HNSW index for fast nearest-neighbour search. For production scale I'd consider pgvector,
+Qdrant or Pinecone, and only `vector_store.py` would change.
+
+**5. How do I reduce hallucination?**
+Five layers: (1) answers are grounded in retrieved text; (2) a similarity threshold of 0.25,
+**chosen by measuring** real scores, skips the LLM for off-topic questions; (3) a strict
+prompt: only use the context, cite every fact, and use an exact refusal sentence that the code detects;
+(4) temperature 0.1; (5) visible sources so users can verify. Measured: 3/3 correct refusals.
+
+**6. What does the hit rate mean?**
+The share of test questions where the chunk containing the answer was among the top-K
+retrieved. It measures **retrieval quality only**, separate from the LLM. Mine: 100% @4,
+with MRR 1.00 (always ranked first) on the sample set.
+
+**7. How would I improve the project?**
+- **Re-ranking**: retrieve 20 chunks, re-score them with a cross-encoder (which reads the question and
+  chunk *together*, so it's more accurate but slower), and keep the top 4.
+- **Hybrid search**: add BM25 keyword search to catch exact names, codes and numbers that
+  embeddings can miss, then merge the two result lists.
+- **Bigger or better models**: stronger embeddings (bge, e5) and larger LLMs, with the evaluation
+  script deciding whether each change actually helps.
+- Plus OCR, streaming answers, multi-user support, CI-run evaluation, and the **AI Exam & Quiz
+  Generator**, which reuses `src/` unchanged.
+
+**Bonus story: "Tell me about a problem you faced."**
+Groq retired Llama 3 mid-project. I listed the available models through the API, tested two
+candidates on my real RAG prompt, picked Qwen3 because it followed the citation format
+best, and since the model was a `.env` setting it was a one-line change. Lesson: design
+for external APIs changing.
