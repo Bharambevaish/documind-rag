@@ -26,8 +26,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 # Default model for each provider, used when MODEL_NAME is left empty.
+# (Groq retired its Llama 3 chat models in 2026; Qwen3 followed our citation
+# format most reliably in testing. Alternative: "openai/gpt-oss-20b".)
 DEFAULT_MODELS = {
-    "groq": "llama-3.1-8b-instant",
+    "groq": "qwen/qwen3.8-27b",
     "ollama": "llama3",
 }
 
@@ -47,6 +49,10 @@ class Settings:
     embedding_model: str = "all-MiniLM-L6-v2"
     chunk_size: int = 800
     chunk_overlap: int = 150
+    # If even the BEST chunk scores below this cosine similarity, the question is
+    # unrelated to the documents, so we skip the LLM and answer "not found".
+    # Chosen by measurement: real questions scored 0.34-0.72, unrelated ones 0.08-0.14.
+    similarity_threshold: float = 0.25
 
     # --- Paths ---
     chroma_dir: Path = PROJECT_ROOT / "data" / "chroma"
@@ -110,6 +116,7 @@ if __name__ == "__main__":
     print(f"Top-K            : {settings.top_k}")
     print(f"Embedding model  : {settings.embedding_model}")
     print(f"Chunk size       : {settings.chunk_size} chars (overlap {settings.chunk_overlap})")
+    print(f"Min similarity   : {settings.similarity_threshold}")
     print(f"Chroma dir       : {settings.chroma_dir}")
     print(f"Log file         : {settings.log_file}")
 

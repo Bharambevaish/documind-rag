@@ -169,3 +169,97 @@ Markdown 1 / 2). Second run: all 3 skipped. Also tested: upload as bytes, replac
 changed file, a renamed duplicate skipped, delete, `.png` and empty files rejected
 with clear errors, and a test search ("How many days of sick leave…?") whose top
 result was `company_leave_policy.pdf` page 2 with similarity 0.72.
+
+---
+
+## Phase 3 – Retrieval + Generation (the RAG pipeline)
+
+### The 30-second answer
+> "When a question comes in, I embed it with the same model as the documents, ask
+> ChromaDB for the 4 most similar chunks, and check the best similarity score. If
+> it's below 0.25, the question is unrelated, so I answer 'not found' without
+> calling the LLM at all. Otherwise I build a prompt with strict rules (answer only
+> from this context, cite `[file, p.N]`, or say the exact not-found sentence), send it
+> to the LLM through one `generate()` function that works with Groq or Ollama, and
+> return the answer, the sources with file, page, snippet and score, and the time taken."
+
+### The pipeline in simple words (an "open-book exam" analogy)
+1. **Understand the question.** Turn it into a vector (`embed_query`).
+2. **Find the right pages in the book.** Ask ChromaDB for the top-K closest chunks
+   (`vector_store.search`), each with a similarity score from 0 to 1.
+3. **Is this question even about the book?** If the best score is below 0.25, stop and
+   answer "I couldn't find this in the uploaded documents." This is fast and free.
+4. **Hand the student only the relevant pages.** Build the prompt: system rules, then
+   each chunk labelled `[file.pdf, p.3]`, then the question. Chunks below the threshold
+   are dropped so they can't distract the model.
+5. **The student answers using only those pages.** `llm.generate()` with temperature 0.1.
+6. **Check the answer.** If the LLM said "not found", return no sources (showing sources
+   would be misleading). Otherwise return the sources and mark which ones were actually cited.
+
+### What each file does
+| File | Purpose | Key detail to mention |
+|---|---|---|
+| `vector_store.search()` | Top-K nearest chunks + scores | Converts Chroma's cosine *distance* into *similarity* = 1 − distance |
+| `src/llm.py` | One `generate(prompt, system_prompt)` for Groq **or** Ollama | Provider chosen in `.env`; every failure becomes a friendly `LLMError`; strips `<think>` blocks from reasoning models |
+| `src/rag_pipeline.py` | `answer_question()`: retrieve → guard → prompt → generate → sources | Two anti-hallucination layers; returns a plain dict the UI can display |
+| `scripts/ask_questions.py` | CLI test: 3 in-doc questions + 1 out-of-doc | Also accepts your own questions as arguments |
+
+### How I reduce hallucination (they WILL ask this)
+1. **Retrieval grounding.** The model only sees text from your documents.
+2. **Similarity threshold (0.25).** Unrelated questions never reach the LLM.
+   *How I chose 0.25:* I measured real scores. Valid questions scored 0.34–0.72 and
+   unrelated ones (FIFA, cake, capitals) scored 0.08–0.14, so 0.25 sits safely between them.
+3. **Strict system prompt.** "Answer ONLY from the context", "cite every fact", and an
+   *exact* refusal sentence, which I can detect in code.
+4. **Low temperature (0.1).** Less creative, more factual and repeatable.
+5. **Citations + snippets shown to the user.** Anyone can verify the answer.
+
+Layers 2 and 3 cover different cases. "What is the salary of a software engineer?" scores
+**0.45**: it's on-topic (company, employees), so it passes the threshold, but the LLM
+correctly says "not found". The threshold alone can't catch that; the prompt can.
+
+### Design decisions you should be able to defend
+- **Why a system prompt *and* a user prompt?** The system message holds standing rules
+  the model treats as higher priority; the user message holds this request's data
+  (context + question). Keeping them separate makes the rules harder to override.
+- **Why an exact refusal sentence?** So the code can detect it reliably (`_is_not_found`)
+  and hide the sources, and so the UI and evaluation can count "not found" answers.
+- **Why one `generate()` function?** This is the *adapter* idea. The pipeline doesn't care
+  whether Groq or Ollama answers, so switching is one `.env` line and adding OpenAI
+  would be one new function.
+- **Why did the model change from Llama 3?** When I built it, Groq had retired its
+  Llama 3 chat models. I listed the models my key could use, tested `gpt-oss-20b` and
+  `qwen3.8-27b` on the same RAG prompt, and picked Qwen because it followed the citation
+  format most reliably. Because the model is just a `.env` setting, it was a one-line
+  change. *(This is a good real-world story: APIs change, so design for it.)*
+- **Why Top-K = 4?** About 4 × 800 characters is ≈ 3,200 characters of context: enough
+  to cover an answer that spans two chunks, small enough to stay fast and focused.
+  Phase 5's hit rate is how I'd tune it.
+- **Why return `used_llm`, `best_score` and `time_taken`?** For debugging, the logs
+  (Phase 4) and evaluation (Phase 5): you can't improve what you don't measure.
+
+### If the interviewer asks…
+- **"What is RAG?"** Retrieval-Augmented Generation. Instead of relying on what the LLM
+  memorised during training, you *retrieve* relevant text from your own documents and
+  *augment* the prompt with it, so the LLM *generates* an answer grounded in that text.
+  This gives up-to-date, private, verifiable answers without retraining the model.
+- **"Why not fine-tune instead?"** Fine-tuning is expensive, slow to update, and still
+  hallucinates without citing anything. With RAG, adding a document takes seconds and
+  every answer shows its source.
+- **"What if the answer is spread across many chunks?"** Increase Top-K, or add re-ranking
+  (retrieve 20, use a cross-encoder to keep the best 4). Both are listed as future work.
+- **"What does temperature do?"** It controls randomness when choosing the next token.
+  Near 0 the model picks the most likely tokens: factual and repeatable.
+- **"What happens if Groq is down?"** `LLMError` gives a clear message, and switching
+  `LLM_PROVIDER=ollama` runs everything locally.
+
+### How to run / test
+```bash
+python scripts/ask_questions.py
+python scripts/ask_questions.py "What is the salary of a software engineer at Northwind?"
+```
+Results (Qwen3 on Groq): sick leave → p.2 ✅, precision vs recall → p.4 ✅,
+overfitting → p.3 ✅, FIFA → "not found" in 0.02 s with no LLM call ✅.
+Extra checks: salary and gradient descent → the LLM refused ✅; "Can I work from home?"
+(the lowest valid score, 0.34) → answered from p.3 ✅. Missing key, wrong key and
+Ollama not running each show a clear one-line error ✅. Typical answer time: 0.8–3.6 s.

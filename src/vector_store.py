@@ -48,6 +48,36 @@ def add_chunks(chunks: list[dict], embeddings: list[list[float]]) -> None:
     )
 
 
+def search(query_embedding: list[float], top_k: int) -> list[dict]:
+    """
+    Find the `top_k` chunks closest in meaning to the query, best first.
+
+    Returns a list of {"text", "source", "page", "score"} where score is the
+    cosine similarity (1.0 = identical meaning, ~0 = unrelated).
+    """
+    collection = get_collection()
+    if collection.count() == 0:
+        return []
+    result = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=min(top_k, collection.count()),
+        include=["documents", "metadatas", "distances"],
+    )
+    # Chroma returns lists-of-lists (one inner list per query); we sent one query.
+    return [
+        {
+            "text": text,
+            "source": meta["source"],
+            "page": meta["page"],
+            # Chroma gives cosine DISTANCE (0 = same). Similarity = 1 - distance.
+            "score": round(1 - distance, 4),
+        }
+        for text, meta, distance in zip(
+            result["documents"][0], result["metadatas"][0], result["distances"][0]
+        )
+    ]
+
+
 def get_document_hash(source: str) -> str | None:
     """Return the stored content hash for a file name, or None if it isn't stored."""
     result = get_collection().get(where={"source": source}, limit=1, include=["metadatas"])
