@@ -263,3 +263,95 @@ overfitting → p.3 ✅, FIFA → "not found" in 0.02 s with no LLM call ✅.
 Extra checks: salary and gradient descent → the LLM refused ✅; "Can I work from home?"
 (the lowest valid score, 0.34) → answered from p.3 ✅. Missing key, wrong key and
 Ollama not running each show a clear one-line error ✅. Typical answer time: 0.8–3.6 s.
+
+---
+
+## Phase 4 – Streamlit UI + Query Logs
+
+### The 30-second answer
+> "The UI is a Streamlit app with a sidebar and two tabs. The sidebar handles the
+> knowledge base: multi-file upload, a document list with a delete button for each file,
+> a 'Clear all' that asks for confirmation, and a Top-K slider. The Chat tab keeps the
+> conversation in `st.session_state` and shows each answer with its response time, best
+> score and an expandable Sources section. Every question is appended to a JSONL log,
+> and the Query Logs tab shows the history plus metrics like average response time.
+> The UI only *calls* the pipeline: `app.py` has no RAG logic of its own."
+
+### What each file does
+| File | Purpose | Key detail to mention |
+|---|---|---|
+| `app.py` | All UI code: sidebar, Chat tab, Query Logs tab | Calls `ingest_file`, `answer_question` and `vector_store`, so there's no RAG logic in the UI |
+| `src/logger.py` | `log_query`, `read_logs`, `clear_logs` | JSON Lines, append-only; damaged lines are skipped instead of crashing |
+| `.claude/launch.json` | Dev-server config used to run and test the app | Not needed by end users |
+
+### How Streamlit works (the #1 thing to understand)
+- **The whole script re-runs from top to bottom on every interaction.** Clicking a button,
+  typing a message or moving a slider all trigger a fresh run.
+- So anything that must survive (the chat history) lives in **`st.session_state`**, a
+  dictionary kept per browser session. Without it, every new question would erase the old ones.
+- Heavy objects are loaded **once per server process**: the embedding model and the
+  ChromaDB client are wrapped in `@lru_cache`, and Python keeps imported modules in memory
+  between re-runs. That's why the first question takes ~3 s and later ones ~0.5–0.8 s.
+- `st.rerun()` forces an immediate re-run, which I use after deleting a document so
+  the sidebar list updates straight away.
+
+### UI design decisions you should be able to defend
+- **An "Add to knowledge base" button instead of auto-ingesting on upload.** Because the
+  script re-runs constantly, auto-processing would re-hash the files on *every* click.
+  The button makes ingestion happen once. After it runs, I change the uploader's `key`,
+  which is a standard trick to reset a Streamlit widget.
+- **Two-step "Clear all".** It's destructive and can't be undone, so the first click only
+  shows a warning with "Yes, delete" and "Cancel". A flag in `session_state` remembers
+  that we're in the "confirming" state across re-runs.
+- **Chat input below the messages.** I reserve a `st.container()` for the conversation
+  *before* drawing the input box, then write new messages into that container. *(I first
+  had the input above the messages, spotted it while testing in the browser, and fixed it.)*
+- **Friendly errors, not stack traces.** A missing API key shows a red explanation and
+  *disables* the chat box. LLM failures (no internet, rate limit) are caught as `LLMError`
+  and shown as a ⚠️ message, and they're logged too, so errors show up in the Logs tab.
+- **Sources under each answer.** File, page, similarity score, a 300-character snippet,
+  and ✅ on chunks the answer actually cites. This is what makes the answers *verifiable*.
+- **"LLM skipped" caption.** It makes the threshold guard from Phase 3 visible: you can see
+  that an off-topic question was answered in 0.03 s without calling the LLM.
+- **The Top-K slider is passed into `answer_question(top_k=...)`.** The pipeline already
+  took a `top_k` argument, so the UI could add this feature without changing the Phase 3 logic.
+
+### Why JSON Lines for logs?
+- **Append-only**: writing a log entry is one line added at the end, so it's fast and an
+  app crash can't corrupt earlier entries (unlike rewriting one big JSON array).
+- **Easy to analyse**: `pandas.read_json("logs/queries.jsonl", lines=True)` loads it straight away.
+- **Small**: I store file, page and score for the sources, not the full snippets.
+- **Git-ignored**: logs can contain users' questions, which may be private.
+- In production I'd use a database (SQLite/Postgres) or a logging service, but for one
+  user JSONL is the simplest thing that works.
+
+### If the interviewer asks…
+- **"What is `st.session_state`?"** — A per-user dictionary that survives Streamlit's
+  re-runs. I keep the chat history, the uploader key and the "confirm clear" flag there.
+- **"Why is the UI separate from the pipeline?"** — Separation of concerns. The same
+  `answer_question()` is used by the CLI script and the web app, and it will be reused by
+  the Quiz Generator. I could swap Streamlit for FastAPI + React without touching `src/`.
+- **"How would multiple users work?"** — Each browser tab gets its own `session_state`
+  (separate chats), but they share one ChromaDB, so everyone sees the same documents.
+  For real multi-user use I'd add login and store a `user_id` in each chunk's metadata,
+  then filter searches with `where={"user_id": ...}`.
+- **"How did you test the UI?"** — Manually in a browser (upload, duplicate upload,
+  delete, Top-K, history, logs), plus Streamlit's `AppTest` for the destructive and
+  config cases: "Clear all → Yes" and a missing API key.
+- **"What was hard?"** — Streamlit's re-run model. Things like the uploader re-processing
+  files, or the input box appearing above messages, only make sense once you understand
+  that the script runs top to bottom on every click. *(Also a real story: the app first
+  crashed because the laptop was out of memory. I diagnosed it with the Windows memory
+  counters: 0.5 GB of commit memory was free and torch needs about 1 GB.)*
+
+### How to run / test
+```bash
+streamlit run app.py
+```
+Tested in the browser: 3 sample docs listed; sick-leave question → cites p.2 with 4
+sources, then 1 source at Top-K = 1; overfitting → p.3; FIFA → "not found", LLM skipped,
+0.03 s; uploaded `cafeteria_notice.txt` → answered from it; same content under another name
+→ "Already ingested"; deleted it → the same question now says "not found"; Clear all →
+Cancel keeps everything; Query Logs → 6 questions, avg 0.82 s, 4/6 found, and it survives
+a restart. With `AppTest`: missing key → red error + disabled chat; Clear all → Yes →
+16 chunks removed and the empty-state hint shown.

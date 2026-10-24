@@ -64,7 +64,9 @@ def ingest_file(file: str | Path | bytes, file_name: str | None = None) -> dict:
     embeddings = embed_texts([c["text"] for c in chunks])
     vector_store.add_chunks(chunks, embeddings)
 
+    page_word = "page" if len(pages) == 1 else "pages"
+    chunk_word = "chunk" if len(chunks) == 1 else "chunks"
     return {
         "source": file_name, "status": status, "pages": len(pages), "chunks": len(chunks),
-        "message": f"{status.capitalize()}: {len(pages)} pages -> {len(chunks)} chunks.",
+        "message": f"{status.capitalize()}: {len(pages)} {page_word} -> {len(chunks)} {chunk_word}.",
     }
